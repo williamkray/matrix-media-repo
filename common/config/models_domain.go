@@ -85,9 +85,10 @@ type QuarantineConfig struct {
 }
 
 type TimeoutsConfig struct {
-	UrlPreviews  int `yaml:"urlPreviewTimeoutSeconds"`
-	Federation   int `yaml:"federationTimeoutSeconds"`
-	ClientServer int `yaml:"clientServerTimeoutSeconds"`
+	UrlPreviews     int `yaml:"urlPreviewTimeoutSeconds"`
+	Federation      int `yaml:"federationTimeoutSeconds"`
+	ClientServer    int `yaml:"clientServerTimeoutSeconds"`
+	WellKnownLookup int `yaml:"wellKnownLookupTimeoutSeconds"`
 }
 
 type FeatureConfig struct {

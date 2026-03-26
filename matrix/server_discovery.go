@@ -15,6 +15,7 @@ import (
 	"github.com/alioygur/is"
 	"github.com/patrickmn/go-cache"
 	"github.com/sirupsen/logrus"
+	"github.com/t2bot/matrix-media-repo/common/config"
 )
 
 var apiUrlCacheInstance *cache.Cache
@@ -86,7 +87,8 @@ func GetServerApiUrl(hostname string) (string, string, error) {
 	// Step 3: if the hostname is not an IP address and no explicit port is given, do .well-known
 	// Note that we have sprawling branches here because we need to fall through to step 4 if parsing fails
 	logrus.Debug("Doing .well-known lookup on " + h)
-	r, err := http.Get(fmt.Sprintf("%s://%s/.well-known/matrix/server", scheme, h))
+	wellKnownClient := &http.Client{Timeout: time.Duration(config.Get().TimeoutSeconds.WellKnownLookup) * time.Second}
+	r, err := wellKnownClient.Get(fmt.Sprintf("%s://%s/.well-known/matrix/server", scheme, h))
 	if r != nil {
 		defer r.Body.Close()
 	}

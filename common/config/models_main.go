@@ -10,6 +10,8 @@ type GeneralConfig struct {
 	TrustAnyForward            bool   `yaml:"trustAnyForwardedAddress"`
 	UseForwardedHost           bool   `yaml:"useForwardedHost"`
 	FreezeUnauthenticatedMedia bool   `yaml:"freezeUnauthenticatedMedia"`
+	ReadHeaderTimeoutSeconds   int    `yaml:"readHeaderTimeoutSeconds"`
+	IdleTimeoutSeconds         int    `yaml:"idleTimeoutSeconds"`
 }
 
 type HomeserverConfig struct {

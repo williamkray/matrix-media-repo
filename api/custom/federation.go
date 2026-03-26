@@ -35,17 +35,12 @@ func GetFederationInfo(r *http.Request, rctx rcontext.RequestContext, user _apim
 
 	versionUrl := url + "/_matrix/federation/v1/version"
 	versionResponse, err := matrix.FederatedGet(rctx, versionUrl, hostname, serverName, matrix.NoSigningKey, false)
-	if versionResponse != nil {
-		defer versionResponse.Body.Close()
-	}
 	if err != nil {
 		rctx.Log.Error(err)
 		sentry.CaptureException(err)
 		return _responses.InternalServerError(err.Error())
 	}
-	if versionResponse == nil {
-		return _responses.InternalServerError("version not found")
-	}
+	defer versionResponse.Body.Close()
 
 	decoder := json.NewDecoder(io.LimitReader(versionResponse.Body, 1*1024*1024))
 	out := make(map[string]interface{})

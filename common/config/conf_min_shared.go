@@ -40,9 +40,10 @@ func NewDefaultMinimumRepoConfig() MinimumRepoConfig {
 			AllowLocalAdmins:  true,
 		},
 		TimeoutSeconds: TimeoutsConfig{
-			UrlPreviews:  10,
-			ClientServer: 30,
-			Federation:   120,
+			UrlPreviews:     10,
+			ClientServer:    30,
+			Federation:      120,
+			WellKnownLookup: 10,
 		},
 		Features: FeatureConfig{},
 		AccessTokens: AccessTokenConfig{

@@ -45,6 +45,14 @@ repo:
   # intended for servers to opt-out of the behaviour while they are still testing compatibility.
   freezeUnauthenticatedMedia: true
 
+  # The maximum amount of time (in seconds) the HTTP server will wait to read request headers.
+  # Protects against slow-loris attacks. Default: 30
+  readHeaderTimeoutSeconds: 30
+
+  # The maximum amount of time (in seconds) an idle keep-alive connection will be held open.
+  # Default: 120
+  idleTimeoutSeconds: 120
+
 # Options for dealing with federation
 federation:
   # On a per-host basis, the number of consecutive failures in calling the host before the
@@ -585,6 +593,11 @@ timeouts:
   # The maximum amount of time the media repo will spend talking to your configured homeservers.
   # This is usually used to verify a user's identity.
   clientServerTimeoutSeconds: 30
+
+  # The maximum amount of time (in seconds) to spend on a .well-known lookup when resolving a
+  # remote Matrix server's API URL. On timeout, the lookup falls through to SRV records.
+  # Default: 10
+  wellKnownLookupTimeoutSeconds: 10
 
 # Prometheus metrics configuration
 # For an example Grafana dashboard, import the following JSON:

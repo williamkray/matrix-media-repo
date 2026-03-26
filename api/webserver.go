@@ -39,7 +39,12 @@ func Init() *sync.WaitGroup {
 
 	// Note: we bind Sentry here to ensure we capture *everything*
 	sentryHandler := sentryhttp.New(sentryhttp.Options{})
-	srv = &http.Server{Addr: address, Handler: sentryHandler.Handle(handler)}
+	srv = &http.Server{
+		Addr:              address,
+		Handler:           sentryHandler.Handle(handler),
+		ReadHeaderTimeout: time.Duration(config.Get().General.ReadHeaderTimeoutSeconds) * time.Second,
+		IdleTimeout:       time.Duration(config.Get().General.IdleTimeoutSeconds) * time.Second,
+	}
 	reload = false
 
 	go func() {

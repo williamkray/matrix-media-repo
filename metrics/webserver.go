@@ -31,7 +31,12 @@ func Init() {
 	rtr.HandleFunc("/_media/metrics", internalHandler)
 
 	address := net.JoinHostPort(config.Get().Metrics.BindAddress, strconv.Itoa(config.Get().Metrics.Port))
-	srv = &http.Server{Addr: address, Handler: rtr}
+	srv = &http.Server{
+		Addr:              address,
+		Handler:           rtr,
+		ReadHeaderTimeout: time.Duration(config.Get().General.ReadHeaderTimeoutSeconds) * time.Second,
+		IdleTimeout:       time.Duration(config.Get().General.IdleTimeoutSeconds) * time.Second,
+	}
 	go func() {
 		//goland:noinspection HttpUrlsUsage
 		logrus.WithField("address", address).Info("Started metrics listener. Listening at http://" + address)

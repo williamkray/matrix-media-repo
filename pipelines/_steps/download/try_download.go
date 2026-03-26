@@ -74,6 +74,7 @@ func TryDownload(ctx rcontext.RequestContext, origin string, mediaId string) (*d
 				return
 			}
 			if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusUnauthorized {
+				resp.Body.Close()
 				errFn(matrix.MakeServerNotAllowedError(ctx.Request.Host))
 				return
 			} else if resp.StatusCode == http.StatusNotFound {
@@ -234,7 +235,12 @@ func TryDownload(ctx rcontext.RequestContext, origin string, mediaId string) (*d
 	if err := pool.DownloadQueue.Schedule(fn); err != nil {
 		return nil, nil, err
 	}
-	res := <-ch
+	var res downloadResult
+	select {
+	case res = <-ch:
+	case <-ctx.Context.Done():
+		return nil, nil, ctx.Context.Err()
+	}
 	if res.err != nil {
 		return nil, nil, res.err
 	}

@@ -33,6 +33,8 @@ func NewDefaultMainConfig() MainRepoConfig {
 			TrustAnyForward:            false,
 			UseForwardedHost:           true,
 			FreezeUnauthenticatedMedia: true,
+			ReadHeaderTimeoutSeconds:   30,
+			IdleTimeoutSeconds:         120,
 		},
 		Database: DatabaseConfig{
 			Postgres: "postgres://your_username:your_password@localhost/database_name?sslmode=disable",
