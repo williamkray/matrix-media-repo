@@ -42,7 +42,7 @@ func TryDownload(ctx rcontext.RequestContext, origin string, mediaId string) (*d
 		return nil, nil, common.ErrMediaNotFound
 	}
 
-	ch := make(chan downloadResult)
+	ch := make(chan downloadResult, 1)
 	defer close(ch)
 	fn := func() {
 		cacheKey := fmt.Sprintf("%s/%s", origin, mediaId)
