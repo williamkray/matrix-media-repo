@@ -86,7 +86,8 @@ func GetServerApiUrl(hostname string) (string, string, error) {
 	// Step 3: if the hostname is not an IP address and no explicit port is given, do .well-known
 	// Note that we have sprawling branches here because we need to fall through to step 4 if parsing fails
 	logrus.Debug("Doing .well-known lookup on " + h)
-	r, err := http.Get(fmt.Sprintf("%s://%s/.well-known/matrix/server", scheme, h))
+	wkClient := &http.Client{Timeout: 10 * time.Second}
+	r, err := wkClient.Get(fmt.Sprintf("%s://%s/.well-known/matrix/server", scheme, h))
 	if r != nil {
 		defer r.Body.Close()
 	}
