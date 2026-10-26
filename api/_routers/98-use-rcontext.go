@@ -11,7 +11,9 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
+	"time"
 
 	"github.com/alioygur/is"
 	"github.com/getsentry/sentry-go"
@@ -26,6 +28,26 @@ import (
 )
 
 type GeneratorFn = func(r *http.Request, ctx rcontext.RequestContext) interface{}
+
+// errorReplyLogInterval bounds the "Replying with error" warn log to one line per interval.
+const errorReplyLogInterval = time.Second
+
+var errorReplyLogSampler = &logSampler{interval: errorReplyLogInterval}
+
+// logSampler allows at most one event per interval. Safe for concurrent use.
+type logSampler struct {
+	interval time.Duration
+	last     atomic.Int64 // unix nanos of the last allowed event
+}
+
+func (s *logSampler) allow() bool {
+	now := time.Now().UnixNano()
+	last := s.last.Load()
+	if now-last < int64(s.interval) {
+		return false
+	}
+	return s.last.CompareAndSwap(last, now)
+}
 
 type RContextRouter struct {
 	generatorFn GeneratorFn
@@ -229,9 +251,20 @@ beforeParseDownload:
 		case common.ErrCodeUnavailable:
 			proposedStatusCode = http.StatusServiceUnavailable
 			break
+		case common.ErrCodeRateLimitExceeded:
+			proposedStatusCode = http.StatusTooManyRequests
+			break
 		default: // Treat as unknown (a generic server error)
 			proposedStatusCode = http.StatusInternalServerError
 			break
+		}
+		if proposedStatusCode >= http.StatusInternalServerError || proposedStatusCode == http.StatusTooManyRequests {
+			// Handlers don't always log before returning an error (and info-level "Replying with result" is often
+			// filtered), so make 5xx/429 replies visible at warn level, sampled to keep volume bounded.
+			if errorReplyLogSampler.allow() {
+				log.WithField("status", proposedStatusCode).Warnf("Replying with error to %s %s: %s (%s); further error replies within %s are not logged here",
+					r.Method, r.URL.Path, errRes.Message, errRes.InternalCode, errorReplyLogInterval)
+			}
 		}
 	}
 

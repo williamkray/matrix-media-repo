@@ -154,7 +154,20 @@ func Execute(ctx rcontext.RequestContext, origin string, mediaId string, opts Do
 			_ = r.Close()
 		}
 	}
+	// refundReservation returns the MaxSizeBytes reserved above for a remote fetch that produced nothing. Without
+	// this, every failed (or errcache-replayed) remote lookup permanently costs the requester MaxSizeBytes, so a
+	// client browsing a room with a handful of dead remotes exhausts its bucket and every further request (including
+	// locally cached media) is rejected as rate limited until it drains.
+	refundReservation := func() {
+		if didBucketMaxSize && limitBucket != nil {
+			didBucketMaxSize = false
+			if limitErr := limitBucket.Drain(ctx.Config.Downloads.MaxSizeBytes); limitErr != nil {
+				ctx.Log.Debug("Non-fatal error refunding download bucket: ", limitErr)
+			}
+		}
+	}
 	if errors.Is(err, common.ErrMediaQuarantined) {
+		refundReservation()
 		if r != nil {
 			// keep the stream usable; it is closed (and cancel called) by the consumer
 			return nil, readers.NewCancelCloser(r, cancel), err
@@ -167,12 +180,14 @@ func Execute(ctx rcontext.RequestContext, origin string, mediaId string, opts Do
 		if notAllowedErr.ServerName != ctx.Request.Host {
 			ctx.Log.Debug("'Not allowed' error is for another server - retrying")
 			closeR()
+			refundReservation() // the retry reserves again
 			cancel()
 			return Execute(origCtx, origin, mediaId, opts)
 		}
 	}
 	if err != nil {
 		closeR()
+		refundReservation()
 		cancel()
 		return nil, nil, err
 	}
@@ -181,11 +196,13 @@ func Execute(ctx rcontext.RequestContext, origin string, mediaId string, opts Do
 		record, err = recordSf.Do(sfKey, fetchRecordFn)
 		if err != nil {
 			closeR()
+			refundReservation()
 			cancel()
 			return nil, nil, err
 		}
 		if record == nil {
 			closeR()
+			refundReservation()
 			cancel()
 			return nil, nil, errors.New("unexpected error: no viable record and no error condition")
 		}
