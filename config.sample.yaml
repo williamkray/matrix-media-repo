@@ -612,6 +612,11 @@ metrics:
   # The port to listen on. Cannot be the same as the general web server port.
   port: 9000
 
+  # If the MEDIA_PPROF_SECRET_KEY environment variable is set (at least 16 characters, and metrics are enabled),
+  # Go pprof profiling endpoints are also served on this listener under /debug/pprof/. Send
+  # `Authorization: Bearer <value>`. Keep this listener bound to a private interface: binding to "0.0.0.0" also
+  # exposes pprof to the container network (still secret-protected). Never publish this port.
+
 # Plugins are optional pieces of the media repo used to extend the functionality offered.
 # Currently there are only antispam plugins, but in future there should be more options.
 # Plugins are not supported on per-domain paths and are instead repo-wide. For more

@@ -12,10 +12,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ### Added
 
 * New optional config fields `timeouts.wellKnownLookupTimeoutSeconds` (default: 10s), `timeouts.readHeaderTimeoutSeconds` (default: 30s), and `timeouts.idleTimeoutSeconds` (default: 120s). Existing deployments that omit these fields will receive the defaults automatically on restart; no config changes are required.
+* Prometheus metrics for leak detection and capacity planning: `media_s3_open_objects`, `media_pool_running`, `media_pool_waiting`, `media_pool_capacity`, `media_pool_overloads_total`, `media_pool_panics_total`, `media_federated_downloads_in_flight`, `media_federated_download_seconds`, and `media_stream_copy_aborted_total`.
+
+### Changed
+
+* The worker pools (downloads, thumbnails, URL previews) now shed load: when every worker is busy and the wait queue is full (or the request gives up waiting), the request fails with HTTP 503 (`errcode` `M_UNKNOWN`, `mr_errcode` `M_UNAVAILABLE`) instead of blocking forever.
+* The pprof endpoints (still enabled by the `MEDIA_PPROF_SECRET_KEY` environment variable) moved from the public API listener to the metrics listener, so `metrics.enabled` must be `true`. They are served at `/debug/pprof/` and require `Authorization: Bearer <MEDIA_PPROF_SECRET_KEY>`, compared in constant time. The `access_token` query parameter is no longer accepted. Secrets shorter than 16 characters disable pprof.
+* Server discovery (`.well-known`) requests now honour `federation.allowedNetworks`/`disallowedNetworks` and use context-aware SRV lookups.
+* The Docker image is now built with a pinned Go toolchain (`golang:1.26.10`) on `alpine:3.23.7`.
 
 ### Fixed
 
-* Fixed a goroutine leak where federated media download goroutines could block indefinitely when the requesting client disconnected. The download worker now respects request context cancellation.
+* Fixed a goroutine leak where federated media download goroutines could block indefinitely. Federated requests now run independently of the requesting client (bounded by `timeouts.federationTimeoutSeconds`) so that concurrent requests can share them, and abandoned results are cleaned up.
+* Downloads served from S3 are no longer aborted about 20 seconds after the request started.
+* Fixed goroutine leaks caused by S3 objects (minio-go starts a goroutine per `GetObject` that only exits on `Close`) not being closed on error paths: multipart federation responses, thumbnail generation, `Range` error handling, `/info`, download/thumbnail pipeline error paths, and the quarantined-after-download case.
+* S3 objects are no longer tied to the first requester's context, so concurrent requests sharing one object no longer fail with "context canceled", and closing a shared stream twice no longer panics.
+* Fixed a silent hang where a failed temporary-file write while storing remote media left the download blocked forever (and every later request for that media with it).
+* Fixed federation download requests being cancelled by the first requester, the circuit breaker orphaning requests, and a nil-pointer panic when following a redirect during remote media download. Dead remote servers are now remembered in the failure cache instead of being retried continuously.
+* Replaced request panics (and their "Panic received" log noise) on mid-stream copy errors with a warning and a metric.
+* A spam-check failure during upload no longer returns a nil record without an error.
 * Fixed response body leaks on non-200/non-404 federated HTTP responses, on 403/401 responses during remote media access, and in two federation API callers that could double-close response bodies.
 
 ### [1.3.8] - January 16, 2025
