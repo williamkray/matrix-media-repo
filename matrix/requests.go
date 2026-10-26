@@ -89,7 +89,7 @@ func FederatedGet(ctx rcontext.RequestContext, reqUrl string, realHost string, d
 
 	var resp *http.Response
 	replyError := cb.CallContext(ctx, func() error {
-		req, err := http.NewRequest(http.MethodGet, reqUrl, nil)
+		req, err := http.NewRequestWithContext(ctx.Context, http.MethodGet, reqUrl, nil)
 		if err != nil {
 			return err
 		}
