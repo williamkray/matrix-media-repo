@@ -1,0 +1,22 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 6221224..304a89b 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -7,7 +7,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+ 
+ ## [Unreleased]
+ 
+-*Nothing yet*
++> **Note:** Changes below are implemented but still under review/testing before release.
++
++### Added
++
++* New optional config fields `timeouts.wellKnownLookupTimeoutSeconds` (default: 10s), `timeouts.readHeaderTimeoutSeconds` (default: 30s), and `timeouts.idleTimeoutSeconds` (default: 120s). Existing deployments that omit these fields will receive the defaults automatically on restart; no config changes are required.
++
++### Fixed
++
++* Fixed a goroutine leak where federated media download goroutines could block indefinitely when the requesting client disconnected. The download worker now respects request context cancellation.
++* Fixed response body leaks on non-200/non-404 federated HTTP responses, on 403/401 responses during remote media access, and in two federation API callers that could double-close response bodies.
+ 
+ ### [1.3.8] - January 16, 2025
+ 
