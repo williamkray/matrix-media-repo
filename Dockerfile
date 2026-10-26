@@ -1,9 +1,9 @@
 # ---- Stage 0 ----
 # Builds media repo binaries
-FROM golang:1.25-alpine3.21 AS builder
+FROM golang:1.26.10-alpine3.23 AS builder
 
 # Install build dependencies
-RUN apk add --no-cache git musl-dev dos2unix build-base libde265-dev
+RUN apk upgrade --no-cache && apk add --no-cache git musl-dev dos2unix build-base libde265-dev
 
 # Build libheif manually
 WORKDIR /opt
@@ -21,7 +21,7 @@ WORKDIR /opt
 COPY . /opt
 
 # Install orchestrion for Datadog APM instrumentation, then pin it into go.mod
-RUN go install github.com/DataDog/orchestrion@latest && orchestrion pin
+RUN go install github.com/DataDog/orchestrion@v1.14.0 && orchestrion pin
 
 # Run remaining build steps
 RUN dos2unix ./build.sh ./docker/run.sh && chmod 744 ./build.sh
@@ -29,10 +29,10 @@ RUN ./build.sh
 
 # ---- Stage 1 ----
 # Final runtime stage.
-FROM alpine:3.21
+FROM alpine:3.23.7
 
 RUN mkdir /plugins
-RUN apk add --no-cache \
+RUN apk upgrade --no-cache && apk add --no-cache \
         su-exec \
         ca-certificates \
         dos2unix \
