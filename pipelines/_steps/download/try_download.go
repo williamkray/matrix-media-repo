@@ -1,6 +1,7 @@
 package download
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -44,14 +45,41 @@ func TryDownload(ctx rcontext.RequestContext, origin string, mediaId string) (*d
 
 	ch := make(chan downloadResult, 1)
 	fn := func() {
+		// Every path through this function must send exactly one value on ch (buffered, never closed). A panic
+		// would otherwise leave the caller (and the abandoned-result cleaner below) waiting forever.
+		defer func() {
+			if rec := recover(); rec != nil {
+				select {
+				case ch <- downloadResult{err: fmt.Errorf("panic in download worker: %v", rec)}:
+				default:
+				}
+				panic(rec) // let the pool's PanicHandler count/report it
+			}
+		}()
+
 		cacheKey := fmt.Sprintf("%s/%s", origin, mediaId)
 		if err := errcache.DownloadErrors.Get(cacheKey); err != nil {
 			ch <- downloadResult{err: err}
 			return
 		}
 
+		start := time.Now()
+		outcome := "error"
+		metrics.FederatedDownloadsInFlight.Inc()
+		defer func() {
+			metrics.FederatedDownloadsInFlight.Dec()
+			metrics.FederatedDownloadDuration.With(prometheus.Labels{"outcome": outcome}).Observe(time.Since(start).Seconds())
+		}()
+
+		// Declared here so errFn can release the response body on every failure path.
+		var resp *http.Response
 		errFn := func(err error) {
-			errcache.DownloadErrors.Set(cacheKey, err)
+			if resp != nil && resp.Body != nil {
+				_ = resp.Body.Close()
+			}
+			if shouldCacheDownloadError(err) {
+				errcache.DownloadErrors.Set(cacheKey, err)
+			}
 			ch <- downloadResult{err: err}
 		}
 
@@ -61,7 +89,6 @@ func TryDownload(ctx rcontext.RequestContext, origin string, mediaId string) (*d
 			return
 		}
 
-		var resp *http.Response
 		var downloadUrl string
 		usesMultipartFormat := false
 		if ctx.Config.SigningKeyPath != "" {
@@ -182,6 +209,10 @@ func TryDownload(ctx rcontext.RequestContext, origin string, mediaId string) (*d
 				return
 			}
 			mediaPart = util.MatrixMediaPartFromMimeMultipart(bodyPart)
+			// Closing a multipart.Part only drains it and never closes the HTTP body behind it. Close the whole response
+			// when the part is closed (and skip the drain: we want to abort, not download the rest).
+			outerBody := resp.Body
+			mediaPart.Body = readers.NewCancelCloser(io.NopCloser(bodyPart), func() { _ = outerBody.Close() })
 			contentType = mediaPart.Header.Get("Content-Type") // Content-Type should really be the media content type
 
 			locationHeader := mediaPart.Header.Get("Location")
@@ -207,6 +238,13 @@ func TryDownload(ctx rcontext.RequestContext, origin string, mediaId string) (*d
 					errFn(err)
 					return
 				}
+				if resp.StatusCode != http.StatusOK {
+					errFn(fmt.Errorf("unexpected status code %d from redirect target", resp.StatusCode))
+					return
+				}
+				if ctx.Config.Downloads.MaxSizeBytes > 0 {
+					resp.Body = readers.LimitReaderWithOverrunError(resp.Body, ctx.Config.Downloads.MaxSizeBytes)
+				}
 				mediaPart = util.MatrixMediaPartFromResponse(resp)
 				contentType = mediaPart.Header.Get("Content-Type")
 			}
@@ -223,6 +261,7 @@ func TryDownload(ctx rcontext.RequestContext, origin string, mediaId string) (*d
 			fileName = params["filename"]
 		}
 
+		outcome = "success"
 		ch <- downloadResult{
 			r:           mediaPart.Body,
 			metadata:    metadata,
@@ -231,13 +270,20 @@ func TryDownload(ctx rcontext.RequestContext, origin string, mediaId string) (*d
 			err:         nil,
 		}
 	}
-	if err := pool.DownloadQueue.Schedule(fn); err != nil {
+	if err := pool.DownloadQueue.ScheduleContext(ctx.Context, fn); err != nil {
 		return nil, nil, err
 	}
 	var res downloadResult
 	select {
 	case res = <-ch:
 	case <-ctx.Context.Done():
+		// The worker keeps running (federation requests are deliberately detached from ctx) and will send into the
+		// buffered channel. If it produces a stream, nobody will read it, so close it.
+		go func() {
+			if late := <-ch; late.r != nil {
+				_ = late.r.Close()
+			}
+		}()
 		return nil, nil, ctx.Context.Err()
 	}
 	if res.err != nil {
@@ -248,4 +294,11 @@ func TryDownload(ctx rcontext.RequestContext, origin string, mediaId string) (*d
 	// TODO: Do something with res.metadata (MSC3911)
 
 	return datastore_op.PutAndReturnStream(ctx, origin, mediaId, res.r, res.contentType, res.filename, datastores.RemoteMediaKind)
+}
+
+// shouldCacheDownloadError reports whether err may be remembered in errcache.DownloadErrors. The worker never uses
+// the requester's context (FederatedGet and the redirect client are detached and bounded by their own timeouts),
+// so timeouts here describe the remote and are cached. context.Canceled is excluded defensively.
+func shouldCacheDownloadError(err error) bool {
+	return !errors.Is(err, context.Canceled)
 }

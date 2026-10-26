@@ -2,6 +2,7 @@ package matrix
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -87,9 +88,15 @@ func FederatedGet(ctx rcontext.RequestContext, reqUrl string, realHost string, d
 
 	cb := getFederationBreaker(realHost)
 
+	// Detach from the caller's request context: its (short) deadline/cancellation must not abort a fetch that other
+	// requests may be sharing, and must not be misread as the remote being unhealthy. The request is bounded by
+	// the http client timeout below. Using this context for the breaker also means every error counts as a failure.
+	reqCtx := context.WithoutCancel(ctx.Context)
+
 	var resp *http.Response
-	replyError := cb.CallContext(ctx, func() error {
-		req, err := http.NewRequestWithContext(ctx.Context, http.MethodGet, reqUrl, nil)
+	// Timeout 0: run synchronously. A breaker-level timeout would orphan the call (and its response body).
+	replyError := cb.CallContext(reqCtx, func() error {
+		req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, reqUrl, nil)
 		if err != nil {
 			return err
 		}
@@ -133,18 +140,29 @@ func FederatedGet(ctx rcontext.RequestContext, reqUrl string, realHost string, d
 			FollowRedirects:        followRedirects,
 		})
 
-		resp, err = client.Do(req)
+		r, err := client.Do(req)
 		if err != nil {
+			if r != nil && r.Body != nil {
+				_ = r.Body.Close() // CheckRedirect failures can return a response alongside the error
+			}
 			return err
 		}
-		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNotFound {
-			b, _ := io.ReadAll(resp.Body)
-			resp.Body.Close()
-			ctx.Log.Warn(string(b))
-			return fmt.Errorf("response not ok: %d", resp.StatusCode)
+		if r.StatusCode != http.StatusOK && r.StatusCode != http.StatusNotFound {
+			b, _ := io.ReadAll(io.LimitReader(r.Body, 64*1024))
+			_ = r.Body.Close()
+			const maxLogged = 512
+			if len(b) > maxLogged {
+				b = b[:maxLogged]
+			}
+			ctx.Log.WithField("status", r.StatusCode).Warnf("Federated GET to %s failed: %q", realHost, b)
+			return fmt.Errorf("response not ok: %d", r.StatusCode)
 		}
+		resp = r // only assigned on success
 		return nil
-	}, 1*time.Minute)
+	}, 0)
 
-	return resp, replyError
+	if replyError != nil {
+		return nil, replyError // contract: never a non-nil response alongside an error
+	}
+	return resp, nil
 }

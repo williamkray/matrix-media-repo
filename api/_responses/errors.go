@@ -59,3 +59,7 @@ func QuotaExceeded() *ErrorResponse {
 func NotYetUploaded() *ErrorResponse {
 	return &ErrorResponse{common.ErrCodeNotYetUploaded, "Media not yet uploaded", common.ErrCodeNotYetUploaded}
 }
+
+func ServiceUnavailable() *ErrorResponse {
+	return &ErrorResponse{common.ErrCodeUnknown, "Server is busy, please try again later", common.ErrCodeUnavailable}
+}

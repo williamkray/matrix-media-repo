@@ -24,11 +24,14 @@ type HttpClientConfig struct {
 	FollowRedirects bool
 }
 
+const maxDialTimeout = 15 * time.Second
+
 func NewHttpClient(ctx rcontext.RequestContext, clientConfig *HttpClientConfig) *http.Client {
 	// Forcefully append 0.0.0.0 and :: because they are unroutable and resolve to localhost
-	deniedCidrs := clientConfig.DeniedCIDRs
-	deniedCidrs = append(deniedCidrs, "0.0.0.0/32")
-	deniedCidrs = append(deniedCidrs, "::/128")
+	// (copy first: appending to the caller's slice could write into shared config memory)
+	deniedCidrs := make([]string, 0, len(clientConfig.DeniedCIDRs)+2)
+	deniedCidrs = append(deniedCidrs, clientConfig.DeniedCIDRs...)
+	deniedCidrs = append(deniedCidrs, "0.0.0.0/32", "::/128")
 	clientConfig.DeniedCIDRs = deniedCidrs
 
 	// Ensure we're at least able to make requests
@@ -38,8 +41,12 @@ func NewHttpClient(ctx rcontext.RequestContext, clientConfig *HttpClientConfig) 
 
 	// safeDialer and safeTransport are from https://www.agwa.name/blog/post/preventing_server_side_request_forgery_in_golang
 	// We add our client config and request context to the safeControl function for logging, primarily.
+	dialTimeout := clientConfig.Timeout
+	if dialTimeout <= 0 || dialTimeout > maxDialTimeout {
+		dialTimeout = maxDialTimeout
+	}
 	safeDialer := &net.Dialer{
-		Timeout:   clientConfig.Timeout,
+		Timeout:   dialTimeout,
 		KeepAlive: 30 * time.Second, // default
 		Control: func(network string, address string, conn syscall.RawConn) error {
 			return safeControl(ctx, clientConfig, network, address, conn)
@@ -47,6 +54,7 @@ func NewHttpClient(ctx rcontext.RequestContext, clientConfig *HttpClientConfig) 
 	}
 	safeTransport := &http.Transport{
 		DialContext:           safeDialer.DialContext,
+		DisableKeepAlives:     true,
 		Proxy:                 http.ProxyFromEnvironment, // default
 		ForceAttemptHTTP2:     true,                      // default
 		MaxIdleConns:          100,                       // default
@@ -101,7 +109,9 @@ func NewHttpClient(ctx rcontext.RequestContext, clientConfig *HttpClientConfig) 
 			}
 
 			// Now that we're past the initial server name validation, clear it
-			safeTransport.TLSClientConfig.ServerName = ""
+			if safeTransport.TLSClientConfig != nil {
+				safeTransport.TLSClientConfig.ServerName = ""
+			}
 
 			return nil
 		},

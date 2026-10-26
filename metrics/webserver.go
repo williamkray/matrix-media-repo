@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
@@ -24,11 +25,15 @@ func internalHandler(res http.ResponseWriter, req *http.Request) {
 func Init() {
 	if !config.Get().Metrics.Enabled {
 		logrus.Info("Metrics disabled")
+		if os.Getenv("MEDIA_PPROF_SECRET_KEY") != "" {
+			logrus.Warn("MEDIA_PPROF_SECRET_KEY is set but metrics are disabled; pprof is not available")
+		}
 		return
 	}
 	rtr := http.NewServeMux()
 	rtr.HandleFunc("/metrics", internalHandler)
 	rtr.HandleFunc("/_media/metrics", internalHandler)
+	bindPprof(rtr)
 
 	address := net.JoinHostPort(config.Get().Metrics.BindAddress, strconv.Itoa(config.Get().Metrics.Port))
 	srv = &http.Server{

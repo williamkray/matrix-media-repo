@@ -3,11 +3,9 @@ package api
 import (
 	"fmt"
 	"net/http"
-	"os"
 
 	"github.com/julienschmidt/httprouter"
 	"github.com/sirupsen/logrus"
-	"github.com/t2bot/matrix-media-repo/api/_debug"
 	"github.com/t2bot/matrix-media-repo/api/_routers"
 	"github.com/t2bot/matrix-media-repo/api/custom"
 	"github.com/t2bot/matrix-media-repo/api/r0"
@@ -23,12 +21,6 @@ const PrefixFederation = "/_matrix/federation"
 func buildRoutes() http.Handler {
 	counter := &_routers.RequestCounter{}
 	router := buildPrimaryRouter()
-
-	pprofSecret := os.Getenv("MEDIA_PPROF_SECRET_KEY")
-	if pprofSecret != "" {
-		logrus.Warn("Enabling pprof/debug http endpoints")
-		_debug.BindPprofEndpoints(router, pprofSecret)
-	}
 
 	// Standard (spec) features
 	register([]string{"PUT"}, PrefixMedia, "upload/:server/:mediaId", mxV3, router, makeRoute(_routers.RequireAccessToken(r0.UploadMediaAsync, false), "upload_async", counter))

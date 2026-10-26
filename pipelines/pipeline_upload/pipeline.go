@@ -29,6 +29,13 @@ func Execute(ctx rcontext.RequestContext, origin string, mediaId string, r io.Re
 		}
 	}
 
+	inputOwned := false // becomes true once BufferTemp (step 4) takes responsibility for closing r
+	defer func() {
+		if !inputOwned && r != nil {
+			_ = r.Close()
+		}
+	}()
+
 	// Step 1: Limit the stream's length
 	if kind == datastores.LocalMediaKind {
 		r = upload.LimitStream(ctx, r)
@@ -61,20 +68,21 @@ func Execute(ctx rcontext.RequestContext, origin string, mediaId string, r io.Re
 		Origin:      origin,
 		MediaId:     mediaId,
 	})
+	inputOwned = true // BufferTemp now closes its input (via the cancel func below) on every path
 	sha256hash, sizeBytes, reader, err := datastores.BufferTemp(dsConf, readers.NewCancelCloser(io.NopCloser(spamTee), func() {
 		r.Close()
 	}))
 	if err != nil {
+		_ = spamW.CloseWithError(err) // unblock the spam checker goroutine, which is still reading spamR
 		return nil, err
 	}
-	if err = spamW.Close(); err != nil {
+	if err = spamW.Close(); err != nil { // PipeWriter.Close never fails, but keep the log
 		ctx.Log.Warn("Failed to close writer for spam checker: ", err)
-		spamChan <- upload.SpamResponse{Err: errors.New("failed to close")}
 	}
 	defer reader.Close()
 	spam := <-spamChan
 	if spam.Err != nil {
-		return nil, err
+		return nil, spam.Err // was `return nil, err`, which is nil here and produced (nil, nil)
 	}
 	if spam.IsSpam {
 		return nil, common.ErrMediaQuarantined

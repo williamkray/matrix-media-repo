@@ -81,6 +81,8 @@ func PreviewUrl(r *http.Request, rctx rcontext.RequestContext, user _apimeta.Use
 			return _responses.NotFoundError()
 		} else if errors.Is(err, common.ErrInvalidHost) || errors.Is(err, common.ErrHostNotAllowed) {
 			return _responses.BadRequest(err.Error())
+		} else if errors.Is(err, common.ErrPoolOverloaded) {
+			return _responses.ServiceUnavailable()
 		} else {
 			sentry.CaptureException(err)
 			return _responses.InternalServerError("Unexpected Error")

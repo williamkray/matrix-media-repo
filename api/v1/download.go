@@ -33,6 +33,9 @@ func FederationDownloadMedia(r *http.Request, rctx rcontext.RequestContext, serv
 	boundary, err := ids.NewUniqueId()
 	if err != nil {
 		rctx.Log.Error("Error generating boundary on response: ", err)
+		if dl, ok := res.(*_responses.DownloadResponse); ok && dl.Data != nil {
+			_ = dl.Data.Close()
+		}
 		return _responses.InternalServerError("unable to generate boundary")
 	}
 	if dl, ok := res.(*_responses.DownloadResponse); ok {

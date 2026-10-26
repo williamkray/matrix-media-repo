@@ -48,6 +48,9 @@ func ExportEntityData(ctx rcontext.RequestContext, exportId string, entityId str
 		})
 		if errors.Is(err, common.ErrMediaQuarantined) {
 			ctx.Log.Warnf("%s is quarantined and will not be included in the export", mxc)
+			if s != nil {
+				_ = s.Close()
+			}
 			continue
 		} else if errors.Is(err, common.ErrMediaNotYetUploaded) {
 			ctx.Log.Debug("Media not uploaded yet - skipping")

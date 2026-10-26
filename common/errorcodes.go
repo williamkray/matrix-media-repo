@@ -17,3 +17,4 @@ const ErrCodeUnauthorized = "M_UNAUTHORIZED"
 const ErrCodeQuotaExceeded = "M_QUOTA_EXCEEDED"
 const ErrCodeCannotOverwrite = "M_CANNOT_OVERWRITE_MEDIA"
 const ErrCodeNotYetUploaded = "M_NOT_YET_UPLOADED"
+const ErrCodeUnavailable = "M_UNAVAILABLE" // internal code only; used to pick an HTTP 503

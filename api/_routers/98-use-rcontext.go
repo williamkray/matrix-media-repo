@@ -5,20 +5,22 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"mime"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/alioygur/is"
 	"github.com/getsentry/sentry-go"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/t2bot/gotd-contrib/http_range"
 	"github.com/t2bot/matrix-media-repo/api/_responses"
 	"github.com/t2bot/matrix-media-repo/common"
 	"github.com/t2bot/matrix-media-repo/common/rcontext"
+	"github.com/t2bot/matrix-media-repo/metrics"
 	"github.com/t2bot/matrix-media-repo/util"
 	"github.com/t2bot/matrix-media-repo/util/readers"
 )
@@ -107,15 +109,18 @@ beforeParseDownload:
 			ranges, err = http_range.ParseRange(r.Header.Get("Range"), downloadRes.SizeBytes, rctx.Config.Downloads.DefaultRangeChunkSizeBytes)
 			if errors.Is(err, http_range.ErrInvalid) {
 				proposedStatusCode = http.StatusRequestedRangeNotSatisfiable
+				closeDownloadData(downloadRes)
 				res = _responses.BadRequest("invalid range header")
 				goto beforeParseDownload // reprocess `res`
 			} else if errors.Is(err, http_range.ErrNoOverlap) {
 				proposedStatusCode = http.StatusRequestedRangeNotSatisfiable
+				closeDownloadData(downloadRes)
 				res = _responses.BadRequest("out of range")
 				goto beforeParseDownload // reprocess `res`
 			}
 			if len(ranges) > 1 {
 				proposedStatusCode = http.StatusRequestedRangeNotSatisfiable
+				closeDownloadData(downloadRes)
 				res = _responses.BadRequest("only 1 range is supported")
 				goto beforeParseDownload // reprocess `res`
 			}
@@ -221,6 +226,9 @@ beforeParseDownload:
 		case common.ErrCodeNotYetUploaded:
 			proposedStatusCode = http.StatusGatewayTimeout
 			break
+		case common.ErrCodeUnavailable:
+			proposedStatusCode = http.StatusServiceUnavailable
+			break
 		default: // Treat as unknown (a generic server error)
 			proposedStatusCode = http.StatusInternalServerError
 			break
@@ -260,10 +268,25 @@ beforeParseDownload:
 	defer stream.Close()
 	written, err := io.Copy(w, stream)
 	if err != nil {
-		panic(err) // blow up this request
+		metrics.StreamCopyAborted.With(prometheus.Labels{"reason": "copy_error"}).Inc()
+		if errors.Is(err, context.Canceled) || errors.Is(err, syscall.EPIPE) || errors.Is(err, syscall.ECONNRESET) {
+			log.Debugf("Aborted stream copy after %d of %d bytes: %v", written, expectedBytes, err)
+		} else {
+			log.Warnf("Aborted stream copy after %d of %d bytes: %v", written, expectedBytes, err)
+		}
+		return
 	}
 	if expectedBytes > 0 && written != expectedBytes {
-		panic(errors.New(fmt.Sprintf("mismatch transfer size: %d expected, %d sent", expectedBytes, written)))
+		metrics.StreamCopyAborted.With(prometheus.Labels{"reason": "size_mismatch"}).Inc()
+		log.Warnf("Mismatch transfer size: %d expected, %d sent", expectedBytes, written)
+		return
+	}
+}
+
+// closeDownloadData releases the stream of a download response that is being discarded (e.g. a bad Range request).
+func closeDownloadData(res *_responses.DownloadResponse) {
+	if res != nil && res.Data != nil {
+		_ = res.Data.Close()
 	}
 }
 

@@ -153,6 +153,8 @@ func ThumbnailMedia(r *http.Request, rctx rcontext.RequestContext, auth _apimeta
 			return _responses.RequestTooLarge()
 		} else if errors.Is(err, common.ErrRateLimitExceeded) {
 			return _responses.RateLimitReached()
+		} else if errors.Is(err, common.ErrPoolOverloaded) {
+			return _responses.ServiceUnavailable()
 		} else if errors.Is(err, common.ErrMediaQuarantined) {
 			rctx.Log.Debug("Quarantined media accessed. Has stream? ", stream != nil)
 			if stream != nil {
@@ -171,9 +173,13 @@ func ThumbnailMedia(r *http.Request, rctx rcontext.RequestContext, auth _apimeta
 			mediaDb := database.GetInstance().Media.Prepare(rctx)
 			record, err := mediaDb.GetById(server, mediaId)
 			if err != nil {
+				_ = stream.Close()
 				rctx.Log.Error("Unexpected error locating media record: ", err)
 				sentry.CaptureException(err)
 				return _responses.InternalServerError("Unexpected Error")
+			} else if record == nil {
+				_ = stream.Close()
+				return _responses.NotFoundError()
 			} else {
 				return &_responses.DownloadResponse{
 					ContentType:       record.ContentType,

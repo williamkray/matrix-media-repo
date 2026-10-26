@@ -77,6 +77,8 @@ func LocalCopy(r *http.Request, rctx rcontext.RequestContext, user _apimeta.User
 			}
 		} else if errors.Is(err, common.ErrMediaNotYetUploaded) {
 			return _responses.NotYetUploaded()
+		} else if errors.Is(err, common.ErrPoolOverloaded) {
+			return _responses.ServiceUnavailable()
 		}
 		rctx.Log.Error("Unexpected error locating media: ", err)
 		sentry.CaptureException(err)

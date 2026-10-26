@@ -168,12 +168,17 @@ func Execute(ctx rcontext.RequestContext, origin string, mediaId string, opts Th
 		// Step 7: Return stream
 		return r, nil
 	})
+	closeR := func() {
+		if r != nil {
+			_ = r.Close()
+		}
+	}
 	if errors.Is(err, common.ErrMediaQuarantined) || errors.Is(err, common.ErrMediaDimensionsTooSmall) {
 		if r != nil {
 			return nil, readers.NewCancelCloser(r, cancel), err
 		}
 
-		if limitBucket != nil {
+		if limitBucket != nil && record != nil {
 			if limitErr := limitBucket.Drain(record.SizeBytes); limitErr != nil {
 				sentry.CaptureException(limitErr)
 				ctx.Log.Warn("Non-fatal error during bucket drain:", limitErr)
@@ -184,6 +189,7 @@ func Execute(ctx rcontext.RequestContext, origin string, mediaId string, opts Th
 		return nil, nil, err
 	}
 	if err != nil {
+		closeR()
 		cancel()
 		return nil, nil, err
 	}
@@ -191,10 +197,12 @@ func Execute(ctx rcontext.RequestContext, origin string, mediaId string, opts Th
 		// Re-fetch, hopefully from cache
 		record, err = recordSf.Do(sfKey, fetchRecordFn)
 		if err != nil {
+			closeR()
 			cancel()
 			return nil, nil, err
 		}
 		if record == nil {
+			closeR()
 			cancel()
 			return nil, nil, errors.New("unexpected error: no viable record and no error condition")
 		}

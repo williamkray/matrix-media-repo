@@ -102,6 +102,8 @@ func DownloadMedia(r *http.Request, rctx rcontext.RequestContext, auth _apimeta.
 			return _responses.RequestTooLarge()
 		} else if errors.Is(err, common.ErrRateLimitExceeded) {
 			return _responses.RateLimitReached()
+		} else if errors.Is(err, common.ErrPoolOverloaded) {
+			return _responses.ServiceUnavailable()
 		} else if errors.Is(err, common.ErrMediaQuarantined) {
 			rctx.Log.Debug("Quarantined media accessed. Has stream? ", stream != nil)
 			if stream != nil {

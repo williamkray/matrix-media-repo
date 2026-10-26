@@ -21,19 +21,16 @@ type SpamResponse struct {
 }
 
 func CheckSpamAsync(ctx rcontext.RequestContext, reader io.Reader, metadata FileMetadata) chan SpamResponse {
-	opChan := make(chan SpamResponse)
+	opChan := make(chan SpamResponse, 1) // buffered: the result is delivered even if nobody ever receives it
 	go func() {
 		//goland:noinspection GoUnhandledErrorResult
 		defer io.Copy(io.Discard, reader) // we need to flush the reader as we might end up blocking the upload
 
 		spam, err := plugins.CheckForSpam(reader, metadata.Name, metadata.ContentType, metadata.UserId, metadata.Origin, metadata.MediaId)
-		go func() {
-			// run async to avoid deadlock
-			opChan <- SpamResponse{
-				Err:    err,
-				IsSpam: spam,
-			}
-		}()
+		opChan <- SpamResponse{
+			Err:    err,
+			IsSpam: spam,
+		}
 	}()
 	return opChan
 }

@@ -41,7 +41,37 @@ var MediaAgeAccessed = prometheus.NewHistogram(prometheus.HistogramOpts{
 	},
 })
 
+var OpenS3Objects = prometheus.NewGauge(prometheus.GaugeOpts{
+	Name: "media_s3_open_objects",
+})
+var StreamCopyAborted = prometheus.NewCounterVec(prometheus.CounterOpts{
+	Name: "media_stream_copy_aborted_total",
+}, []string{"reason"})
+var FederatedDownloadsInFlight = prometheus.NewGauge(prometheus.GaugeOpts{
+	Name: "media_federated_downloads_in_flight",
+})
+var FederatedDownloadDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+	Name:    "media_federated_download_seconds",
+	Buckets: []float64{0.1, 0.5, 1, 2.5, 5, 10, 15, 20, 30, 60, 120},
+}, []string{"outcome"})
+var PoolWaiting = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+	Name: "media_pool_waiting",
+}, []string{"pool"})
+var PoolOverloads = prometheus.NewCounterVec(prometheus.CounterOpts{
+	Name: "media_pool_overloads_total",
+}, []string{"pool"})
+var PoolPanics = prometheus.NewCounterVec(prometheus.CounterOpts{
+	Name: "media_pool_panics_total",
+}, []string{"pool"})
+
 func init() {
+	prometheus.MustRegister(OpenS3Objects)
+	prometheus.MustRegister(StreamCopyAborted)
+	prometheus.MustRegister(FederatedDownloadsInFlight)
+	prometheus.MustRegister(FederatedDownloadDuration)
+	prometheus.MustRegister(PoolWaiting)
+	prometheus.MustRegister(PoolOverloads)
+	prometheus.MustRegister(PoolPanics)
 	prometheus.MustRegister(HttpRequests)
 	prometheus.MustRegister(InvalidHttpRequests)
 	prometheus.MustRegister(HttpResponses)

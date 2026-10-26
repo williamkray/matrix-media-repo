@@ -51,6 +51,7 @@ func Execute(ctx rcontext.RequestContext, origin string, mediaId string, opts Do
 	}
 
 	// Step 1: Make our context a timeout context
+	origCtx := ctx // for retries: ctx.Context is replaced (and later cancelled) below
 	var cancel context.CancelFunc
 	//goland:noinspection GoVetLostCancel - we handle the function in our custom cancelCloser struct
 	ctx.Context, cancel = context.WithTimeout(ctx.Context, opts.BlockForReadUntil)
@@ -136,6 +137,7 @@ func Execute(ctx rcontext.RequestContext, origin string, mediaId string, opts Do
 		}
 		recordSf.OverwriteCacheKey(sfKey, record)
 		if record.Quarantined {
+			_ = r.Close() // we won't serve the downloaded stream
 			return quarantine.ReturnAppropriateThing(ctx, true, opts.RecordOnly, 512, 512)
 		}
 		meta.FlagAccess(ctx, record.Sha256Hash, record.CreationTs)
@@ -147,19 +149,30 @@ func Execute(ctx rcontext.RequestContext, origin string, mediaId string, opts Do
 		// Step 5: Return the stream
 		return r, nil
 	})
+	closeR := func() {
+		if r != nil {
+			_ = r.Close()
+		}
+	}
 	if errors.Is(err, common.ErrMediaQuarantined) {
+		if r != nil {
+			// keep the stream usable; it is closed (and cancel called) by the consumer
+			return nil, readers.NewCancelCloser(r, cancel), err
+		}
 		cancel()
-		return nil, r, err
+		return nil, nil, err
 	}
 	var notAllowedErr *matrix.ServerNotAllowedError
 	if errors.As(err, &notAllowedErr) {
 		if notAllowedErr.ServerName != ctx.Request.Host {
 			ctx.Log.Debug("'Not allowed' error is for another server - retrying")
+			closeR()
 			cancel()
-			return Execute(ctx, origin, mediaId, opts)
+			return Execute(origCtx, origin, mediaId, opts)
 		}
 	}
 	if err != nil {
+		closeR()
 		cancel()
 		return nil, nil, err
 	}
@@ -167,10 +180,12 @@ func Execute(ctx rcontext.RequestContext, origin string, mediaId string, opts Do
 		// Re-fetch, hopefully from cache
 		record, err = recordSf.Do(sfKey, fetchRecordFn)
 		if err != nil {
+			closeR()
 			cancel()
 			return nil, nil, err
 		}
 		if record == nil {
+			closeR()
 			cancel()
 			return nil, nil, errors.New("unexpected error: no viable record and no error condition")
 		}
@@ -180,6 +195,7 @@ func Execute(ctx rcontext.RequestContext, origin string, mediaId string, opts Do
 		// If for some reason the downloaded file is larger than the max size, the bucket will be added to instead.
 		// We should only get a limit error when the file is larger than the max size.
 		if limitErr := limitBucket.Drain(ctx.Config.Downloads.MaxSizeBytes - record.SizeBytes); limitErr != nil {
+			closeR()
 			cancel()
 			if errors.Is(limitErr, leaky.ErrBucketFull) {
 				return nil, nil, common.ErrRateLimitExceeded

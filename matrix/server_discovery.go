@@ -1,6 +1,7 @@
 package matrix
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,6 +17,7 @@ import (
 	"github.com/patrickmn/go-cache"
 	"github.com/sirupsen/logrus"
 	"github.com/t2bot/matrix-media-repo/common/config"
+	"github.com/t2bot/matrix-media-repo/common/rcontext"
 )
 
 var apiUrlCacheInstance *cache.Cache
@@ -87,7 +89,12 @@ func GetServerApiUrl(hostname string) (string, string, error) {
 	// Step 3: if the hostname is not an IP address and no explicit port is given, do .well-known
 	// Note that we have sprawling branches here because we need to fall through to step 4 if parsing fails
 	logrus.Debug("Doing .well-known lookup on " + h)
-	wellKnownClient := &http.Client{Timeout: time.Duration(config.Get().TimeoutSeconds.WellKnownLookup) * time.Second}
+	wellKnownClient := NewHttpClient(rcontext.Initial(), &HttpClientConfig{
+		Timeout:         time.Duration(config.Get().TimeoutSeconds.WellKnownLookup) * time.Second,
+		AllowedCIDRs:    config.Get().Federation.AllowedNetworks,
+		DeniedCIDRs:     config.Get().Federation.DisallowedNetworks,
+		FollowRedirects: true, // the spec allows .well-known to redirect; https downgrades are rejected by the client
+	})
 	r, err := wellKnownClient.Get(fmt.Sprintf("%s://%s/.well-known/matrix/server", scheme, h))
 	if r != nil {
 		defer r.Body.Close()
@@ -129,7 +136,7 @@ func GetServerApiUrl(hostname string) (string, string, error) {
 				// Step 3c: if the delegated host is not an IP and doesn't have a port, start a SRV lookup and use it.
 				// Note: we ignore errors here because the hostname will fail elsewhere.
 				logrus.Debug("Doing SRV on WK host ", wkHost)
-				_, addrs, _ := net.LookupSRV("matrix-fed", "tcp", wkHost)
+				addrs := lookupSRV("matrix-fed", wkHost)
 				if len(addrs) > 0 {
 					// Trim off the trailing period if there is one (golang doesn't like this)
 					realAddr := addrs[0].Target
@@ -147,7 +154,7 @@ func GetServerApiUrl(hostname string) (string, string, error) {
 				// lookup and use it.
 				// Note: we ignore errors here because the hostname will fail elsewhere.
 				logrus.Debug("Doing SRV on WK host ", wkHost)
-				_, addrs, _ = net.LookupSRV("matrix", "tcp", wkHost)
+				addrs = lookupSRV("matrix", wkHost)
 				if len(addrs) > 0 {
 					// Trim off the trailing period if there is one (golang doesn't like this)
 					realAddr := addrs[0].Target
@@ -179,7 +186,7 @@ func GetServerApiUrl(hostname string) (string, string, error) {
 	// Step 4: try resolving a hostname using SRV records and use it
 	// Note: we ignore errors here because the hostname will fail elsewhere.
 	logrus.Debug("Doing SRV for host ", hostname)
-	_, addrs, _ := net.LookupSRV("matrix-fed", "tcp", hostname)
+	addrs := lookupSRV("matrix-fed", hostname)
 	if len(addrs) > 0 {
 		// Trim off the trailing period if there is one (golang doesn't like this)
 		realAddr := addrs[0].Target
@@ -196,7 +203,7 @@ func GetServerApiUrl(hostname string) (string, string, error) {
 	// Step 5: try resolving a hostname using DEPRECATED SRV records and use it
 	// Note: we ignore errors here because the hostname will fail elsewhere.
 	logrus.Debug("Doing SRV for host ", hostname)
-	_, addrs, _ = net.LookupSRV("matrix", "tcp", hostname)
+	addrs = lookupSRV("matrix", hostname)
 	if len(addrs) > 0 {
 		// Trim off the trailing period if there is one (golang doesn't like this)
 		realAddr := addrs[0].Target
@@ -217,4 +224,11 @@ func GetServerApiUrl(hostname string) (string, string, error) {
 	apiUrlCacheInstance.Set(hostname, server, cache.DefaultExpiration)
 	logrus.Debug("Server API URL for " + hostname + " is " + url + " (fallback)")
 	return url, h, nil
+}
+
+func lookupSRV(service string, name string) []*net.SRV {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(config.Get().TimeoutSeconds.WellKnownLookup)*time.Second)
+	defer cancel()
+	_, addrs, _ := net.DefaultResolver.LookupSRV(ctx, service, "tcp", name) // errors ignored, as before: the hostname fails later
+	return addrs
 }

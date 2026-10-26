@@ -1,6 +1,7 @@
 package url_preview
 
 import (
+	"context"
 	"errors"
 
 	"github.com/getsentry/sentry-go"
@@ -14,6 +15,10 @@ func Process(ctx rcontext.RequestContext, previewUrl string, preview m.PreviewRe
 	previewDb := database.GetInstance().UrlPreviews.Prepare(ctx)
 
 	if err != nil {
+		if errors.Is(err, common.ErrPoolOverloaded) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, err // transient: do not cache an error row for this URL
+		}
+
 		if errors.Is(err, m.ErrPreviewUnsupported) {
 			err = common.ErrMediaNotFound
 		}

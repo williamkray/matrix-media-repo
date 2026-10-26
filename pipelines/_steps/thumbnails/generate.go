@@ -2,6 +2,7 @@ package thumbnails
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"strconv"
 
@@ -26,9 +27,17 @@ type generateResult struct {
 }
 
 func Generate(ctx rcontext.RequestContext, mediaRecord *database.DbMedia, width int, height int, method string, animated bool) (*database.DbThumbnail, io.ReadCloser, error) {
-	ch := make(chan generateResult)
-	defer close(ch)
+	ch := make(chan generateResult, 1) // buffered and never closed: the worker must never block or panic if we stop waiting
 	fn := func() {
+		defer func() {
+			if rec := recover(); rec != nil {
+				select {
+				case ch <- generateResult{err: fmt.Errorf("panic while generating thumbnail: %v", rec)}:
+				default:
+				}
+				panic(rec) // let the pool's PanicHandler count/report it
+			}
+		}()
 		metric := metrics.ThumbnailsGenerated.With(prometheus.Labels{
 			"width":    strconv.Itoa(width),
 			"height":   strconv.Itoa(height),
@@ -45,6 +54,7 @@ func Generate(ctx rcontext.RequestContext, mediaRecord *database.DbMedia, width 
 
 		fixedContentType, err := util.DetectMimeType(mediaStream)
 		if err != nil {
+			_ = mediaStream.Close() // GenerateThumbnail (below) closes it on the other paths
 			ch <- generateResult{err: err}
 			return
 		}
@@ -68,10 +78,21 @@ func Generate(ctx rcontext.RequestContext, mediaRecord *database.DbMedia, width 
 		ch <- generateResult{i: i}
 	}
 
-	if err := pool.ThumbnailQueue.Schedule(fn); err != nil {
+	if err := pool.ThumbnailQueue.ScheduleContext(ctx.Context, fn); err != nil {
 		return nil, nil, err
 	}
-	res := <-ch
+	var res generateResult
+	select {
+	case res = <-ch:
+	case <-ctx.Context.Done():
+		// The worker still runs to completion and sends into the buffered channel; clean up whatever it produces.
+		go func() {
+			if late := <-ch; late.i != nil && late.i.Reader != nil {
+				_ = late.i.Reader.Close()
+			}
+		}()
+		return nil, nil, ctx.Context.Err()
+	}
 	if res.err != nil {
 		return nil, nil, res.err
 	}
@@ -89,6 +110,7 @@ func Generate(ctx rcontext.RequestContext, mediaRecord *database.DbMedia, width 
 	if res.i.Animated != animated { // this is the only thing that could have changed during generation
 		existingRecord, err := db.GetByParams(mediaRecord.Origin, mediaRecord.MediaId, width, height, method, res.i.Animated)
 		if err != nil {
+			_ = res.i.Reader.Close()
 			return nil, nil, err
 		}
 		if existingRecord != nil {

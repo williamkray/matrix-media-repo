@@ -14,6 +14,14 @@ import (
 )
 
 func BufferTemp(datastore config.DatastoreConfig, contents io.ReadCloser) (string, int64, io.ReadCloser, error) {
+	// `contents` is ours to release even when we fail early (the explicit Close further down reports its error).
+	contentsClosed := false
+	defer func() {
+		if !contentsClosed {
+			_ = contents.Close()
+		}
+	}()
+
 	fpath := ""
 	var err error
 	if datastore.Type == "s3" {
@@ -51,11 +59,20 @@ func BufferTemp(datastore config.DatastoreConfig, contents io.ReadCloser) (strin
 	mw := io.MultiWriter(hasher, target)
 
 	// Actually copy to the temp file
+	discardTarget := func() {
+		if f, ok := target.(*os.File); ok {
+			_ = f.Close()
+			_ = os.Remove(f.Name())
+		}
+	}
 	var sizeBytes int64
 	if sizeBytes, err = io.Copy(mw, contents); err != nil {
+		discardTarget()
 		return "", 0, nil, err
 	}
+	contentsClosed = true
 	if err = contents.Close(); err != nil {
+		discardTarget()
 		return "", 0, nil, err
 	}
 
