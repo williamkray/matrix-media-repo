@@ -233,6 +233,12 @@ beforeParseDownload:
 		case common.ErrCodeBadRequest:
 			proposedStatusCode = http.StatusBadRequest
 			break
+		case common.ErrCodeCannotThumbnail:
+			proposedStatusCode = http.StatusBadRequest
+			break
+		case common.ErrCodeRemoteTooLarge:
+			proposedStatusCode = http.StatusBadGateway
+			break
 		case common.ErrCodeMethodNotAllowed:
 			proposedStatusCode = http.StatusMethodNotAllowed
 			break

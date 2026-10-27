@@ -13,6 +13,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/t2bot/matrix-media-repo/common"
 	"github.com/t2bot/matrix-media-repo/common/config"
 	"github.com/t2bot/matrix-media-repo/common/rcontext"
 )
@@ -155,7 +156,7 @@ func FederatedGet(ctx rcontext.RequestContext, reqUrl string, realHost string, d
 				b = b[:maxLogged]
 			}
 			ctx.Log.WithField("status", r.StatusCode).Warnf("Federated GET to %s failed: %q", realHost, b)
-			return fmt.Errorf("response not ok: %d", r.StatusCode)
+			return federatedStatusError(r.StatusCode, b)
 		}
 		resp = r // only assigned on success
 		return nil
@@ -165,4 +166,21 @@ func FederatedGet(ctx rcontext.RequestContext, reqUrl string, realHost string, d
 		return nil, replyError // contract: never a non-nil response alongside an error
 	}
 	return resp, nil
+}
+
+// federatedStatusError translates a non-OK remote response into an error. Spec-defined remote errors (502
+// M_TOO_LARGE, 504 M_NOT_YET_UPLOADED) wrap the matching common sentinel; everything else is a generic error.
+func federatedStatusError(status int, body []byte) error {
+	var parsed struct {
+		Errcode string `json:"errcode"`
+	}
+	if err := json.Unmarshal(body, &parsed); err == nil {
+		if status == http.StatusBadGateway && parsed.Errcode == common.ErrCodeTooLarge {
+			return fmt.Errorf("remote returned %d %s: %w", status, parsed.Errcode, common.ErrMediaTooLarge)
+		}
+		if status == http.StatusGatewayTimeout && parsed.Errcode == common.ErrCodeNotYetUploaded {
+			return fmt.Errorf("remote returned %d %s: %w", status, parsed.Errcode, common.ErrMediaNotYetUploaded)
+		}
+	}
+	return fmt.Errorf("response not ok: %d", status)
 }

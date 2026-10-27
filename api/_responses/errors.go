@@ -63,3 +63,19 @@ func NotYetUploaded() *ErrorResponse {
 func ServiceUnavailable() *ErrorResponse {
 	return &ErrorResponse{common.ErrCodeUnknown, "Server is busy, please try again later", common.ErrCodeUnavailable}
 }
+
+func DownloadTooLarge() *ErrorResponse {
+	return &ErrorResponse{common.ErrCodeTooLarge, "Content is too large to serve", common.ErrCodeRemoteTooLarge}
+}
+
+func ThumbnailTooLarge(remote bool) *ErrorResponse {
+	internal := common.ErrCodeMediaTooLarge
+	if remote {
+		internal = common.ErrCodeRemoteTooLarge
+	}
+	return &ErrorResponse{common.ErrCodeTooLarge, "Content is too large to thumbnail", internal}
+}
+
+func CannotThumbnail() *ErrorResponse {
+	return &ErrorResponse{common.ErrCodeUnknown, "Cannot generate thumbnails for the requested content", common.ErrCodeCannotThumbnail}
+}

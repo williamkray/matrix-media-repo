@@ -32,6 +32,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 * Replaced request panics (and their "Panic received" log noise) on mid-stream copy errors with a warning and a metric.
 * A spam-check failure during upload no longer returns a nil record without an error.
 * Fixed response body leaks on non-200/non-404 federated HTTP responses, on 403/401 responses during remote media access, and in two federation API callers that could double-close response bodies.
+* Media download/thumbnail error status codes now follow the spec: HTTP 502 `M_TOO_LARGE` for content too large to serve or remote content too large to thumbnail (local content too large to thumbnail stays 413), and HTTP 400 `M_UNKNOWN` for content that cannot be thumbnailed.
 
 ### [1.3.8] - January 16, 2025
 

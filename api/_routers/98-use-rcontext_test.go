@@ -34,14 +34,22 @@ func TestRateLimitReachedIs429(t *testing.T) {
 }
 
 func TestErrorStatusMapping(t *testing.T) {
-	cases := map[int]*_responses.ErrorResponse{
-		http.StatusServiceUnavailable:  _responses.ServiceUnavailable(),
-		http.StatusNotFound:            _responses.NotFoundError(),
-		http.StatusInternalServerError: _responses.InternalServerError("boom"),
+	cases := []struct {
+		want int
+		res  *_responses.ErrorResponse
+	}{
+		{http.StatusServiceUnavailable, _responses.ServiceUnavailable()},
+		{http.StatusNotFound, _responses.NotFoundError()},
+		{http.StatusInternalServerError, _responses.InternalServerError("boom")},
+		{http.StatusBadGateway, _responses.DownloadTooLarge()},
+		{http.StatusBadGateway, _responses.ThumbnailTooLarge(true)},
+		{http.StatusRequestEntityTooLarge, _responses.ThumbnailTooLarge(false)},
+		{http.StatusBadRequest, _responses.CannotThumbnail()},
+		{http.StatusRequestEntityTooLarge, _responses.RequestTooLarge()},
 	}
-	for want, res := range cases {
-		if got := serveErrorResponse(t, res).Code; got != want {
-			t.Errorf("%s: expected %d, got %d", res.InternalCode, want, got)
+	for _, c := range cases {
+		if got := serveErrorResponse(t, c.res).Code; got != c.want {
+			t.Errorf("%s: expected %d, got %d", c.res.InternalCode, c.want, got)
 		}
 	}
 }

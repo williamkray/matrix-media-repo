@@ -99,7 +99,7 @@ func DownloadMedia(r *http.Request, rctx rcontext.RequestContext, auth _apimeta.
 				InternalCode: common.ErrCodeNotFound, // used to determine http status code
 			}
 		} else if errors.Is(err, common.ErrMediaTooLarge) {
-			return _responses.RequestTooLarge()
+			return _responses.DownloadTooLarge()
 		} else if errors.Is(err, common.ErrRateLimitExceeded) {
 			return _responses.RateLimitReached()
 		} else if errors.Is(err, common.ErrPoolOverloaded) {

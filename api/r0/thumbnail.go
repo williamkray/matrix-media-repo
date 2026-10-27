@@ -13,6 +13,7 @@ import (
 	"github.com/t2bot/matrix-media-repo/datastores"
 	"github.com/t2bot/matrix-media-repo/pipelines/pipeline_download"
 	"github.com/t2bot/matrix-media-repo/pipelines/pipeline_thumbnail"
+	"github.com/t2bot/matrix-media-repo/thumbnailing"
 	"github.com/t2bot/matrix-media-repo/util"
 
 	"github.com/sirupsen/logrus"
@@ -150,7 +151,9 @@ func ThumbnailMedia(r *http.Request, rctx rcontext.RequestContext, auth _apimeta
 				InternalCode: common.ErrCodeNotFound, // used to determine http status code
 			}
 		} else if errors.Is(err, common.ErrMediaTooLarge) {
-			return _responses.RequestTooLarge()
+			return _responses.ThumbnailTooLarge(!util.IsServerOurs(server))
+		} else if errors.Is(err, thumbnailing.ErrUnsupported) {
+			return _responses.CannotThumbnail()
 		} else if errors.Is(err, common.ErrRateLimitExceeded) {
 			return _responses.RateLimitReached()
 		} else if errors.Is(err, common.ErrPoolOverloaded) {

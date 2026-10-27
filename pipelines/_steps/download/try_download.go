@@ -300,5 +300,6 @@ func TryDownload(ctx rcontext.RequestContext, origin string, mediaId string) (*d
 // the requester's context (FederatedGet and the redirect client are detached and bounded by their own timeouts),
 // so timeouts here describe the remote and are cached. context.Canceled is excluded defensively.
 func shouldCacheDownloadError(err error) bool {
-	return !errors.Is(err, context.Canceled)
+	// Not-yet-uploaded is transient (the remote may finish the upload), so never remember it.
+	return !errors.Is(err, context.Canceled) && !errors.Is(err, common.ErrMediaNotYetUploaded)
 }
